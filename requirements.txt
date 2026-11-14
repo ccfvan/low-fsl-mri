@@ -1,0 +1,7 @@
+# Versions used to run the included tests.
+# These are runtime dependencies. Their licenses apply to those packages,
+# not to the code in this repository. This file does not select a license
+# for this repository.
+numpy==2.5.4
+scipy==1.18.1
+pandas==3.1.1
