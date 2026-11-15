@@ -11,20 +11,25 @@ of that comparison.
 
 The default field grid samples B0 from -250 to 250 Hz in 5 Hz steps and B1
 from -25% to 25% in 0.5% steps. Summary windows of |B0| <= 100 Hz and
-|B0| <= 250 Hz are both available. Neither window is marked as the paper
-statistic. This package implements the simulation methods; it is not a
+|B0| <= 250 Hz are both available. The paper Table 2 uses the |B0| <= 250 Hz
+window. This package implements the simulation methods; it is not a
 complete rerun of the paper figures.
+
+For CW, composite, balanced, and quadruple-refocused preparations, the
+constant locking amplitude passed to ``build_core`` is used directly. The
+paper comparison sets that amplitude equal to the target frequency
+(20, 50, or 100 Hz). No peak-alignment calibration is applied.
 """
 
 from __future__ import annotations
 
+import hashlib
 import math
 from dataclasses import dataclass
 from typing import NamedTuple
 
 import numpy as np
 import pandas as pd
-from scipy.linalg import expm
 
 
 @dataclass(frozen=True)
@@ -349,7 +354,90 @@ def finite_propagator(
     generator[:, 2, 1] = -wx
     generator[:, 2, 2] = -r1
     generator[:, 2, 3] = r1 * p.m0
-    return expm(generator * operation.duration_s)
+    return expm_pade13(generator * operation.duration_s)
+
+
+_PADE13 = np.array(
+    [
+        64764752532480000.0,
+        32382376266240000.0,
+        7771770303897600.0,
+        1187353796428800.0,
+        129060195264000.0,
+        10559470521600.0,
+        670442572800.0,
+        33522128640.0,
+        1323241920.0,
+        40840800.0,
+        960960.0,
+        16380.0,
+        182.0,
+        1.0,
+    ]
+)
+_PADE13_THETA = 5.371920351148152
+
+
+def expm_pade13(matrix: np.ndarray) -> np.ndarray:
+    """Scaling-and-squaring Pade approximation of order 13.
+
+    This is the propagator used for the nominal-amplitude paper grids. On the
+    full 101 by 101 field grid it matches ``scipy.linalg.expm`` to about
+    1e-14 in the propagated signal.
+    """
+
+    one_norm = np.max(np.sum(np.abs(matrix), axis=-2), axis=-1)
+    scale = int(math.ceil(math.log2(max(float(np.max(one_norm)) / _PADE13_THETA, 1.0))))
+    scaled = matrix / (2**scale)
+    identity = np.eye(matrix.shape[-1])
+    square = scaled @ scaled
+    fourth = square @ square
+    sixth = fourth @ square
+    odd = scaled @ (
+        sixth @ (_PADE13[13] * sixth + _PADE13[11] * fourth + _PADE13[9] * square)
+        + _PADE13[7] * sixth
+        + _PADE13[5] * fourth
+        + _PADE13[3] * square
+        + _PADE13[1] * identity
+    )
+    even = (
+        sixth @ (_PADE13[12] * sixth + _PADE13[10] * fourth + _PADE13[8] * square)
+        + _PADE13[6] * sixth
+        + _PADE13[4] * fourth
+        + _PADE13[2] * square
+        + _PADE13[0] * identity
+    )
+    result = np.linalg.solve(even - odd, even + odd)
+    for _ in range(scale):
+        result = result @ result
+    return result
+
+
+def grid_sha256(values: np.ndarray) -> str:
+    """Hash every stored grid value, not only the endpoints and length."""
+
+    array = np.ascontiguousarray(values, dtype=np.float64)
+    return hashlib.sha256(array.tobytes()).hexdigest()
+
+
+def propagator_cache_key(
+    p: Params,
+    operation: Operation,
+    b0_hz: np.ndarray,
+    b1_scale: np.ndarray,
+) -> tuple:
+    return (
+        round(p.t1_s, 12),
+        round(p.t2_s, 12),
+        round(p.m0, 12),
+        grid_sha256(b0_hz),
+        grid_sha256(b1_scale),
+        int(np.asarray(b0_hz).size),
+        int(np.asarray(b1_scale).size),
+        round(operation.duration_s, 12),
+        round(operation.fx_hz, 9),
+        round(operation.fy_hz, 9),
+    )
 
 
 def simulate_preparation(
@@ -357,7 +445,7 @@ def simulate_preparation(
     operations: list[Operation],
     b0_hz: np.ndarray,
     b1_scale: np.ndarray,
-    cache: dict[tuple[float, float, float], np.ndarray],
+    cache: dict[tuple, np.ndarray],
     initial_axis: int = 2,
     readout_axis: int = 2,
 ) -> np.ndarray:
@@ -367,11 +455,7 @@ def simulate_preparation(
     magnetization[:, initial_axis] = 1.0
     magnetization[:, 3] = 1.0
     for operation in operations:
-        key = (
-            round(operation.duration_s, 12),
-            round(operation.fx_hz, 9),
-            round(operation.fy_hz, 9),
-        )
+        key = propagator_cache_key(p, operation, b0_hz, b1_scale)
         if key not in cache:
             cache[key] = finite_propagator(p, operation, b0_hz, b1_scale)
         magnetization = np.einsum("nij,nj->ni", cache[key], magnetization)
@@ -634,133 +718,24 @@ def finite_time_spectrum(
     return spectrum, metrics, waveform
 
 
-def dominant_frequency_hz(
-    p: Params,
-    operations: list[Operation],
-    tsl_s: float,
-    zero_pad_factor: int = 8,
-) -> float:
-    """Return the dominant positive finite-time control frequency."""
+def locking_amplitude_hz(method_key: str, target_hz: float, p: Params | None = None) -> float:
+    """Return the constant locking amplitude used for a target frequency.
 
-    times_s, modulation, _, _, dt_s = sample_control_modulation(
-        operations, tsl_s, p.spectrum_dt_s
-    )
-    n_time = times_s.size
-    n_fft_min = zero_pad_factor * n_time
-    n_fft = 1 << int(math.ceil(math.log2(n_fft_min)))
-    transform = dt_s * np.fft.rfft(modulation, n=n_fft, axis=0)
-    frequencies_hz = np.fft.rfftfreq(n_fft, d=dt_s)
-    power = np.sum(np.abs(transform) ** 2, axis=1)
-    search = (frequencies_hz >= max(1.0, 0.5 / tsl_s)) & (
-        frequencies_hz <= p.spectrum_max_hz
-    )
-    indices = np.flatnonzero(search)
-    return float(frequencies_hz[indices[int(np.argmax(power[indices]))]])
+    CW, composite, balanced, and quadruple-refocused preparations use
+    ``target_hz`` itself. CPMG has no constant lock; its timing frequency is
+    ``1/(2*tau)=target_hz`` and its refocusing amplitude stays at
+    ``Params.rf_peak_hz``. Sinusoidal modulation uses frequency ``target_hz``
+    and peak amplitude ``beta*target_hz``.
+    """
 
-
-def calibrate_control_frequency(
-    p: Params, method_key: str, target_hz: float, tsl_s: float
-) -> dict[str, float | bool | str]:
-    """Match the dominant finite-time frequency without changing the target TSL."""
-
-    if method_key == "rotary_echo":
-        control_hz = target_hz
-        dominant_hz = dominant_frequency_hz(
-            p,
-            build_core(p, method_key, tsl_s, control_hz),
-            tsl_s,
-            p.spectrum_zero_pad_factor,
-        )
-        mode = "spin-lock-amplitude-defined"
-    elif method_key == "phase_cycled_cpmg":
-        control_hz = target_hz
-        dominant_hz = dominant_frequency_hz(
-            p,
-            build_core(p, method_key, tsl_s, control_hz),
-            tsl_s,
-            p.spectrum_zero_pad_factor,
-        )
-        mode = "pulse-spacing-defined"
-    else:
-        coarse = np.linspace(0.75 * target_hz, 1.25 * target_hz, 31)
-        coarse_dom = np.array(
-            [
-                dominant_frequency_hz(
-                    p, build_core(p, method_key, tsl_s, candidate), tsl_s
-                )
-                for candidate in coarse
-            ]
-        )
-        best = int(np.argmin(np.abs(coarse_dom - target_hz)))
-        coarse_step = coarse[1] - coarse[0]
-        fine = np.linspace(
-            max(0.1, coarse[best] - coarse_step),
-            coarse[best] + coarse_step,
-            21,
-        )
-        fine_dom = np.array(
-            [
-                dominant_frequency_hz(
-                    p, build_core(p, method_key, tsl_s, candidate), tsl_s
-                )
-                for candidate in fine
-            ]
-        )
-        best = int(np.argmin(np.abs(fine_dom - target_hz)))
-        control_hz = float(fine[best])
-        dominant_hz = dominant_frequency_hz(
-            p,
-            build_core(p, method_key, tsl_s, control_hz),
-            tsl_s,
-            p.spectrum_zero_pad_factor,
-        )
-        mode = "dominant-frequency-calibrated"
-        if abs(dominant_hz - target_hz) > 0.05 * target_hz:
-            rescue = np.linspace(0.5 * target_hz, 1.5 * target_hz, 61)
-            rescue_dom = np.array(
-                [
-                    dominant_frequency_hz(
-                        p,
-                        build_core(p, method_key, tsl_s, candidate),
-                        tsl_s,
-                        p.spectrum_zero_pad_factor,
-                    )
-                    for candidate in rescue
-                ]
-            )
-            best = int(np.argmin(np.abs(rescue_dom - target_hz)))
-            rescue_step = rescue[1] - rescue[0]
-            rescue_fine = np.linspace(
-                max(0.1, rescue[best] - rescue_step),
-                rescue[best] + rescue_step,
-                21,
-            )
-            rescue_fine_dom = np.array(
-                [
-                    dominant_frequency_hz(
-                        p,
-                        build_core(p, method_key, tsl_s, candidate),
-                        tsl_s,
-                        p.spectrum_zero_pad_factor,
-                    )
-                    for candidate in rescue_fine
-                ]
-            )
-            best = int(np.argmin(np.abs(rescue_fine_dom - target_hz)))
-            control_hz = float(rescue_fine[best])
-            dominant_hz = float(rescue_fine_dom[best])
-            mode = "dominant-frequency-calibrated-high-resolution-rescue"
-    error_hz = dominant_hz - target_hz
-    return {
-        "method": method_key,
-        "target_Hz": target_hz,
-        "controlParameter_Hz": control_hz,
-        "dominantFrequency_Hz": dominant_hz,
-        "frequencyError_Hz": error_hz,
-        "absoluteFrequencyError_pct": 100 * abs(error_hz) / target_hz,
-        "within5pct": bool(abs(error_hz) <= 0.05 * target_hz),
-        "calibrationMode": mode,
-    }
+    if method_key == "sinusoidal":
+        params = p if p is not None else Params()
+        return params.sinusoidal_beta * target_hz
+    if method_key == "phase_cycled_cpmg":
+        return target_hz
+    if method_key in {"ordinary", "rotary_echo", "balanced", "quadruple_refocused", "triple_refocused"}:
+        return target_hz
+    raise ValueError(f"Unknown method: {method_key}")
 
 
 def rf_metrics(

@@ -41,6 +41,20 @@ Run them from the repository root:
 python -m unittest discover -s tests -v
 ```
 
+## Nominal locking amplitudes
+
+CW, composite, balanced, and quadruple-refocused preparations use a constant locking amplitude equal to the target frequency: 20, 50, or 100 Hz. `build_core` applies that amplitude directly. The package does not peak-align the lock.
+
+CPMG-MLEV16 keeps the timing frequency `1/(2*tau) = target` and 625 Hz composite refocusing pulses. Sinusoidal spin lock keeps modulation frequency equal to the target and peak amplitude `beta * target`, with `beta` the first positive root of `J0`.
+
+The numerical comparison with the paper's Table 2, over `|B0| <= 250 Hz` and `|B1| <= 25%`, and the 160 ms spectral peaks is:
+
+```bash
+python scripts/compare_nominal_table2.py
+```
+
+That command reruns CW, composite, balanced, quadruple-refocused, and CPMG-MLEV16. It does not rerun the sinusoidal Bloch grid: the published sinusoidal medians used a separate continuous-waveform integration, while this package samples the same analytic sinusoid as piecewise-constant steps.
+
 ## Default settings and limits
 
 - The default field grid samples B0 from -250 Hz to 250 Hz in 5 Hz steps, and B1 from -25% to 25% in 0.5% steps.

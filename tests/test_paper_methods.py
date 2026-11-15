@@ -110,6 +110,28 @@ class PaperMethodTests(unittest.TestCase):
         actual_signs = tuple(int(np.sign(op.fx_hz)) for op in central)
         self.assertEqual(actual_signs, engine.MLEV16_SIGNS)
 
+    def test_constant_lock_equals_target_and_calibration_is_absent(self) -> None:
+        self.assertFalse(hasattr(engine, "calibrate_control_frequency"))
+        for method_key in ("ordinary", "rotary_echo", "balanced", "quadruple_refocused"):
+            for target_hz in (20.0, 50.0, 100.0):
+                self.assertEqual(engine.locking_amplitude_hz(method_key, target_hz), target_hz)
+                operations = engine.build_core(self.p, method_key, 0.08, target_hz)
+                locks = [op for op in operations if "SL" in op.label]
+                self.assertTrue(locks)
+                self.assertTrue(all(abs(abs(op.fx_hz) - target_hz) < 1e-9 for op in locks))
+        operations = engine.build_cpmg_core(self.p, 0.08, 50.0)
+        pulses = [op for op in operations if op.fx_hz or op.fy_hz]
+        self.assertTrue(all(abs(abs(op.fx_hz) - 625.0) < 1e-9 or abs(abs(op.fy_hz) - 625.0) < 1e-9 for op in pulses))
+        b0 = self.p.b0_hz.copy()
+        altered = b0.copy()
+        altered[40] += 0.2
+        scale = np.ones_like(b0)
+        operation = engine.Operation(0.08, 20.0, 0.0, "continuous SL")
+        self.assertNotEqual(
+            engine.propagator_cache_key(self.p, operation, b0, scale),
+            engine.propagator_cache_key(self.p, operation, altered, scale),
+        )
+
     def test_rotary_echo_is_positive_lock_center_pi_negative_lock(self) -> None:
         operations = engine.build_rotary_echo_core(self.p, 0.08, 50.0)
         self.assertEqual([operation.label for operation in operations], [
