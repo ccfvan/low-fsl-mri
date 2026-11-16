@@ -70,46 +70,69 @@ vessel wall, and ideal CW/composite/balanced/CPMG preparations. Frequencies
 are converted from Hz to rad/s explicitly. Axial reduction is allowed only
 when both the field and water mask are y-invariant.
 
-The driver defaults to radius 6 micrometers, volume fraction 0.035,
-susceptibility difference 0.18 ppm, B0=3 T, D=0.8 square micrometers/ms,
-T1=1.3 s, T2=80 ms, 64-cubed reference geometry, and a maximum 12.5-microsecond
-step. The period grid is chosen in multiples of four so ideal pulse centers
-are representable. No acquired geometry or stored pilot rate table is used.
+Paper defaults are: radius 6 micrometers, volume fraction 0.035, susceptibility
+difference 0.18 ppm, B0 = 3 T, D = 0.8 square micrometers/ms, T1 = 1.3 s,
+T2 = 80 ms, 64-cubed reference geometry (axially reduced when the field is
+y-invariant), and a 12.5-microsecond reference step, with the period grid
+chosen in multiples of four so ideal pulse centers are representable. The
+paper frequency schedule is every integer from 1 to 100 Hz, not a sparser
+subset. No acquired geometry or stored pilot rate table is used.
 
 ```bash
 # Small end-to-end check only; not publication-resolution results:
 python scripts/run_microvascular.py --grid 8 --dt-us 50 --frequencies 20,50,100
-# Computationally substantial paper-geometry run:
-python scripts/run_microvascular.py --frequencies 1:100
+
+# Paper-resolution sweep (computationally substantial):
+python scripts/run_microvascular_paper.py --frequencies paper --output microvascular_rates
+
+# Fit both Lorentzian models to CW rates only, then predict the other preparations:
+python scripts/fit_lorentzian_transfer.py --input microvascular_rates/fits.csv --output transfer_fit
+
+# Paper convergence subset: 10, 20, and 50 Hz; 64^3 at 12.5 us vs 6.25 us vs 96^3:
+python scripts/check_microvascular_convergence.py --output microvascular_convergence
 ```
 
-Ordinary/composite/balanced use 13 durations up to min(0.2 s,4/f).
-CPMG samples completed periods, with up to 3 periods below/equal 11 Hz and
-up to min(5,floor(0.25*f)) above. Fit rejection requires positive finite
-samples >=1e-12 and R-squared >=0.95. These are ideal instantaneous-pulse
-simulations; they are separate from finite-pulse Table 2 CPMG. The ideal
-CPMG modulation is phase-equivalent for this model; it does not implement
-finite-width MLEV16 phase cycling.
+Ordinary/composite/balanced use 13 durations up to min(0.2 s, 4/f), snapped
+to representable ideal pulse centers. CPMG samples completed periods, with
+up to 3 periods at or below 11 Hz and min(5, floor(0.25*f)) periods above.
+Fit rejection requires positive finite samples >=1e-12 and R-squared >=0.95.
+These are ideal instantaneous-pulse simulations; they are separate from the
+finite-pulse Table 2 CPMG. The ideal CPMG modulation is phase-equivalent for
+this model; it does not implement finite-width MLEV16 phase cycling.
 
-Only kernel checks and a small-grid driver run have been validated in this
-candidate. The full 1--100 Hz, 64-cubed rates, 96-cubed/time-step convergence,
-and the corrected/uncorrected Lorentzian cross-preparation prediction tables
-have NOT been rerun here. The Lorentzian prediction/fitting entry is not yet
-included. Do not interpret this candidate as reproducing those paper tables.
+The uncorrected Lorentzian is `R(f) = R_bg + A / (1 + (2 pi f tau)^2)`, fitted
+to the 100 CW points only. The corrected model evaluates
+`S(T) = exp(-R_bg T - A' G(T, tau))` with the same causal-filter quadrature
+and Gauss-Newton monoexponential refit used for the paper tables, then predicts
+the other preparations without refitting. Metrics are reported over 1-100 Hz
+and 20-100 Hz. PDEV is the fraction of simulated preparation-minus-CW rate
+differences explained by the model; the uncorrected model has PDEV = 0 by
+construction. In this package, that pooled PDEV is taken over composite,
+balanced, and ideal-pulse CPMG. An earlier analysis script pooled balanced,
+CPMG, and a sinusoidal transfer case, and omitted composite, so a numerical
+match to the paper's 94.8% Delta-R figure should not be assumed even after a
+full rerun until that pooling is reconciled.
+
+Kernel checks, a small-grid driver, and a small-grid
+simulation-to-fit/convergence path have been validated. The full 1-100 Hz,
+64-cubed rates, the 10/20/50 Hz 64^3 / 6.25 us / 96^3 convergence subset, and
+the paper Lorentzian parameter and prediction tables have NOT been rerun here.
+These commands recompute the simulation; they do not load previously stored
+rate tables. Do not interpret the presence of the pipeline as reproduction of
+those paper tables.
 
 ## Pulseq and remaining gaps
 
 An independently rights-cleared, self-contained in-vivo Pulseq generator is
 not included. The acquisition chain still requires separation of author-written
-T1rho scheduling from other sequence code and review of code ownership and
-necessary copyright notices. No `.seq` batch or acquired data is redistributed.
+T1rho scheduling from other sequence code, review of code ownership, and a
+confirmed official Pulseq dependency version. No `.seq` batch or acquired data
+is redistributed. Official Pulseq, if added later as a dependency, must be
+installed under its own original license and must not be vendored or presented
+as this project's original code.
 
-If a sequence generator is added later, MATLAB Pulseq or PyPulseq must be
-installed as a versioned external dependency under its own original license;
-its source must not be presented as this project's original code. No exact
-Pulseq dependency version has been certified by this candidate.
-
-Tests check numerical consistency, conservation, waveform definitions and
-selected limiting cases. Passing tests is not scanner safety, clinical
-validation, or complete paper replication. Public release remains pending
-license/rights approval and completion of the stated gaps.
+Tests check numerical consistency, conservation, waveform definitions,
+schedule formulas, Lorentzian limiting cases, and selected small-grid
+pipeline paths. Passing tests is not scanner safety, clinical validation, or
+complete paper replication. Public release remains pending license/rights
+approval and completion of the stated gaps.
