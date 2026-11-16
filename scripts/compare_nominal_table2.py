@@ -42,7 +42,7 @@ EXPECTED = {
     ("phase_cycled_cpmg", 50.0): (2.665, 24.99, -50.16326904296874),
     ("phase_cycled_cpmg", 100.0): (3.0711, 21.192, -100.13580322265624),
 }
-# Sinusoidal Table 2 is listed for reference. This package does not rerun it.
+# Sinusoidal Table 2 is listed for reference. This command does not rerun it; use compare_sinusoidal_table2.py.
 SINUSOIDAL_REFERENCE = {
     20.0: (38.312090033175785, 80.15381461282769),
     50.0: (45.80025371630807, 95.55620513288355),
