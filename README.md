@@ -1,65 +1,115 @@
 # low-fsl-mri
 
-Simulation code for the six magnetization-prepared relaxation methods compared in the paper *Robust Magnetization-Prepared Relaxation Mapping*:
+Candidate simulation package for the six RF preparations compared in the paper:
+CW, composite, balanced, quadruple-refocused, sinusoidal, and CPMG-MLEV16.
+This is not a complete reproduction of all paper results or experiments.
 
-1. conventional continuous-wave spin lock
-2. composite spin lock (internal key `rotary_echo`)
-3. balanced spin lock
-4. quadruple-refocused spin lock
-5. sinusoidal spin lock
-6. CPMG-MLEV16
+## Scope and access
 
-The package builds preparation waveforms, propagates a piecewise-constant Bloch model, computes finite-duration spectra, fits a monoexponential relaxation time, applies the Foltz timing correction for CPMG, and reports RF amplitude metrics. Triple-refocused spin lock can still be constructed, but it is not part of the paper comparison set.
+The release is being prepared privately. Public release and the project license
+still require the authors' approval. No license is selected by this draft.
+No acquired image data, scanner sequence files, vendor SDK code, plotting
+examples, internal project records, or source-history manifests are included.
+Dependencies retain their own licenses; see `THIRD_PARTY_DEPENDENCIES.md`.
 
-This is a method-implementation package. It is not a complete reproduction of the paper's numerical results, figures, or phantom and in vivo measurements. Scanner sequences and acquired image data are not included.
-
-A license for this code has not been selected.
-
-## Requirements
-
-Runtime dependencies are pinned in `requirements.txt`:
-
-- numpy
-- scipy
-- pandas
-
-Install with:
+## Install and test
 
 ```bash
 python -m pip install -r requirements.txt
-```
-
-License information for those third-party packages is summarized in `THIRD_PARTY_DEPENDENCIES.md`. Those licenses apply to the packages themselves, not to the code in this repository.
-
-## Tests
-
-The `tests/` directory contains automated checks of the simulation kernels. These tests do not plot figures and do not reproduce the paper figures. They check the six-method set, preparation durations, default field-grid sampling, the two candidate |B0| summary windows, pulse counts and phase tables, nominal on-resonance decay, the sinusoidal waveform definition, spectrum normalization, the Foltz correction, and RF-cost differences between methods.
-
-Run them from the repository root:
-
-```bash
 python -m unittest discover -s tests -v
 ```
 
-## Nominal locking amplitudes
+## RF robustness and Table 2
 
-CW, composite, balanced, and quadruple-refocused preparations use a constant locking amplitude equal to the target frequency: 20, 50, or 100 Hz. `build_core` applies that amplitude directly. The package does not peak-align the lock.
+CW, composite, balanced, and quadruple-refocused preparations use the nominal
+constant locking amplitude equal to each target: 20, 50, or 100 Hz. There is no
+spectrum-peak alignment calibration. Sinusoidal RF has modulation frequency
+`f` and peak amplitude `beta*f`, with `beta` the first positive root of `J0`.
+CPMG retains timing frequency `1/(2*tau)=f` and 625-Hz composite refocusing RF;
+it does not use a constant locking field equal to `f`.
 
-CPMG-MLEV16 keeps the timing frequency `1/(2*tau) = target` and 625 Hz composite refocusing pulses. Sinusoidal spin lock keeps modulation frequency equal to the target and peak amplitude `beta * target`, with `beta` the first positive root of `J0`.
-
-The numerical comparison with the paper's Table 2, over `|B0| <= 250 Hz` and `|B1| <= 25%`, and the 160 ms spectral peaks is:
+The field grid is B0 = -250:5:250 Hz and B1 amplitude error = -25:0.5:25%.
+Table 2 statistics use the full |B0| <= 250 Hz window, not the optional 100-Hz
+window. RF cost here is not scanner-measured SAR.
 
 ```bash
 python scripts/compare_nominal_table2.py
+python scripts/compare_sinusoidal_table2.py --output sinusoidal_table2.csv
 ```
 
-That command reruns CW, composite, balanced, quadruple-refocused, and CPMG-MLEV16. It does not rerun the sinusoidal Bloch grid: the published sinusoidal medians used a separate continuous-waveform integration, while this package samples the same analytic sinusoid as piecewise-constant steps.
+The first command compares the four piecewise-constant preparations and
+finite-pulse CPMG (with the Foltz fit-time correction) and 160-ms spectral
+peaks. Its sinusoidal values are reference-only; use the second command to
+actually recompute all three sinusoidal rows.
 
-## Default settings and limits
+`sinusoidal_continuous.py` evaluates the analytic cosine RF at every RK4 stage.
+The default maximum integration step is 25 microseconds, adjusted to an integer
+number of steps per period. This is continuous-waveform numerical integration,
+not an exact analytic Bloch solution. It starts at +Mx, uses T1=1.2 s and
+T2=80 ms, samples [0,2,4,8]/f seconds, and fits |Mx| with no Foltz correction.
+The separate `engine.py` sinusoidal builder still uses midpoint-sampled,
+piecewise-constant 25-microsecond RF; it is not silently substituted for the
+continuous integration.
 
-- The default field grid samples B0 from -250 Hz to 250 Hz in 5 Hz steps, and B1 from -25% to 25% in 0.5% steps.
-- Summary windows of |B0| <= 100 Hz and |B0| <= 250 Hz are both reported. Neither window is selected as the paper statistic.
-- The default sinusoidal sampling step is 25 microseconds. This can be overridden through `Params.sinusoidal_dt_s`.
-- Reported RF metrics are computed from the simulated waveforms. They are not scanner-measured SAR.
+The full-grid continuous-integration rerun matches Table 2 to the reported
+two-decimal precision:
 
-Passing the included tests means those kernel checks succeeded. It does not mean that all paper figures or tabulated results have been reproduced.
+| Target Hz | Median absolute error % | 95th percentile % |
+|---:|---:|---:|
+| 20 | 38.31 | 80.15 |
+| 50 | 45.80 | 95.56 |
+| 100 | 47.35 | 111.57 |
+
+This verifies those three statistics, not every figure or acquisition result.
+
+## Synthetic diffusion--susceptibility simulation
+
+`microvascular.py` contains the straight-cylinder FFT susceptibility field,
+RK4 Bloch update, periodic nearest-neighbor diffusion with no flux across the
+vessel wall, and ideal CW/composite/balanced/CPMG preparations. Frequencies
+are converted from Hz to rad/s explicitly. Axial reduction is allowed only
+when both the field and water mask are y-invariant.
+
+The driver defaults to radius 6 micrometers, volume fraction 0.035,
+susceptibility difference 0.18 ppm, B0=3 T, D=0.8 square micrometers/ms,
+T1=1.3 s, T2=80 ms, 64-cubed reference geometry, and a maximum 12.5-microsecond
+step. The period grid is chosen in multiples of four so ideal pulse centers
+are representable. No acquired geometry or stored pilot rate table is used.
+
+```bash
+# Small end-to-end check only; not publication-resolution results:
+python scripts/run_microvascular.py --grid 8 --dt-us 50 --frequencies 20,50,100
+# Computationally substantial paper-geometry run:
+python scripts/run_microvascular.py --frequencies 1:100
+```
+
+Ordinary/composite/balanced use 13 durations up to min(0.2 s,4/f).
+CPMG samples completed periods, with up to 3 periods below/equal 11 Hz and
+up to min(5,floor(0.25*f)) above. Fit rejection requires positive finite
+samples >=1e-12 and R-squared >=0.95. These are ideal instantaneous-pulse
+simulations; they are separate from finite-pulse Table 2 CPMG. The ideal
+CPMG modulation is phase-equivalent for this model; it does not implement
+finite-width MLEV16 phase cycling.
+
+Only kernel checks and a small-grid driver run have been validated in this
+candidate. The full 1--100 Hz, 64-cubed rates, 96-cubed/time-step convergence,
+and the corrected/uncorrected Lorentzian cross-preparation prediction tables
+have NOT been rerun here. The Lorentzian prediction/fitting entry is not yet
+included. Do not interpret this candidate as reproducing those paper tables.
+
+## Pulseq and remaining gaps
+
+An independently rights-cleared, self-contained in-vivo Pulseq generator is
+not included. The acquisition chain still requires separation of author-written
+T1rho scheduling from other sequence code and review of code ownership and
+necessary copyright notices. No `.seq` batch or acquired data is redistributed.
+
+If a sequence generator is added later, MATLAB Pulseq or PyPulseq must be
+installed as a versioned external dependency under its own original license;
+its source must not be presented as this project's original code. No exact
+Pulseq dependency version has been certified by this candidate.
+
+Tests check numerical consistency, conservation, waveform definitions and
+selected limiting cases. Passing tests is not scanner safety, clinical
+validation, or complete paper replication. Public release remains pending
+license/rights approval and completion of the stated gaps.
