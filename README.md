@@ -1,18 +1,26 @@
 # low-fsl-mri
 
-Candidate simulation package for the six RF preparations compared in the paper:
+Bloch and microvascular diffusion--susceptibility simulation code for the paper.
+The RF robustness comparison covers six preparations:
 CW, composite, balanced, quadruple-refocused, sinusoidal, and CPMG-MLEV16.
 This is not a complete reproduction of all paper results or experiments.
 
 ## Scope and access
 
-The release is being prepared privately. Public release and the project license
-still require the authors' approval. No license is selected by this draft.
+This repository covers **simulation code only**: Bloch RF robustness and
+synthetic microvascular diffusion--susceptibility simulations, including the
+rate-fitting, cross-preparation prediction, and convergence workflows below.
+In-vivo Pulseq generation, scanner acquisition, and acquired data are **out of
+scope**, not planned deliverables or prerequisites for this simulation package.
+The repository is currently private. No project license has been selected;
+dependency licenses do not grant a license to this repository's own code.
 No acquired image data, scanner sequence files, vendor SDK code, plotting
 examples, internal project records, or source-history manifests are included.
 Dependencies retain their own licenses; see `THIRD_PARTY_DEPENDENCIES.md`.
 
 ## Install and test
+
+Tested with Python 3.13 and the dependency versions pinned below.
 
 ```bash
 python -m pip install -r requirements.txt
@@ -108,31 +116,27 @@ the other preparations without refitting. Metrics are reported over 1-100 Hz
 and 20-100 Hz. PDEV is the fraction of simulated preparation-minus-CW rate
 differences explained by the model; the uncorrected model has PDEV = 0 by
 construction. In this package, that pooled PDEV is taken over composite,
-balanced, and ideal-pulse CPMG. An earlier analysis script pooled balanced,
-CPMG, and a sinusoidal transfer case, and omitted composite, so a numerical
-match to the paper's 94.8% Delta-R figure should not be assumed even after a
-full rerun until that pooling is reconciled.
+balanced, and ideal-pulse CPMG. This differs from a balanced/CPMG/sinusoidal
+pool that excludes composite. Therefore a numerical match to the paper's
+94.8% Delta-R figure should not be assumed even after a full rerun; the
+pool definitions must be reconciled before comparing that statistic.
 
 Kernel checks, a small-grid driver, and a small-grid
 simulation-to-fit/convergence path have been validated. The full 1-100 Hz,
 64-cubed rates, the 10/20/50 Hz 64^3 / 6.25 us / 96^3 convergence subset, and
-the paper Lorentzian parameter and prediction tables have NOT been rerun here.
+the paper Lorentzian parameter and prediction tables have NOT yet been
+validated as matching the paper at full resolution.
 These commands recompute the simulation; they do not load previously stored
 rate tables. Do not interpret the presence of the pipeline as reproduction of
 those paper tables.
 
-## Pulseq and remaining gaps
+## Limitations and scope boundary
 
-An independently rights-cleared, self-contained in-vivo Pulseq generator is
-not included. The acquisition chain still requires separation of author-written
-T1rho scheduling from other sequence code, review of code ownership, and a
-confirmed official Pulseq dependency version. No `.seq` batch or acquired data
-is redistributed. Official Pulseq, if added later as a dependency, must be
-installed under its own original license and must not be vendored or presented
-as this project's original code.
+In-vivo Pulseq generators, `.seq` files, human or phantom acquisitions, and
+vendor scanner code are not distributed or promised by this repository.
 
 Tests check numerical consistency, conservation, waveform definitions,
 schedule formulas, Lorentzian limiting cases, and selected small-grid
 pipeline paths. Passing tests is not scanner safety, clinical validation, or
-complete paper replication. Public release remains pending license/rights
-approval and completion of the stated gaps.
+complete paper replication. The numerical reproduction limitations described
+above apply independently of acquisition code, which is out of scope.
