@@ -13,6 +13,7 @@ Run from the repository root:
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -108,7 +109,13 @@ def spectrum_operations(p, method_key, target_hz):
     return operations
 
 
-def main() -> None:
+def main(argv=None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--output", type=Path, default=Path("results/nominal_table2_comparison.csv"),
+        help="CSV destination (default: results/nominal_table2_comparison.csv)",
+    )
+    args = parser.parse_args(argv)
     p = engine.Params()
     b0, b1_pct, b1_scale = grid(p)
     if b0.size != 10201:
@@ -143,9 +150,8 @@ def main() -> None:
                 f"{'OK' if rows[-1]['match'] else 'DIFF'}",
                 flush=True,
             )
-    out = Path("results")
-    out.mkdir(exist_ok=True)
-    pd.DataFrame(rows).to_csv(out / "nominal_table2_comparison.csv", index=False)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_csv(args.output, index=False)
     print("sinusoidal reference, not recomputed:")
     for target, (median, p95) in SINUSOIDAL_REFERENCE.items():
         print(f"  {target:6.0f} Hz  {median:.4f} ({p95:.4f})")
