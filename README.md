@@ -12,7 +12,7 @@ synthetic microvascular diffusion--susceptibility simulations, including the
 rate-fitting, cross-preparation prediction, and convergence workflows below.
 In-vivo Pulseq generation, scanner acquisition, and acquired data are **out of
 scope**, not planned deliverables or prerequisites for this simulation package.
-The repository is currently private. No project license has been selected;
+No project license has been selected;
 dependency licenses do not grant a license to this repository's own code.
 No acquired image data, scanner sequence files, vendor SDK code, plotting
 examples, internal project records, or source-history manifests are included.
